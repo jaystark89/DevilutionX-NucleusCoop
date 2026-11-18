@@ -1,0 +1,22 @@
+﻿# Release packages (uploaded separately to GitHub Releases)
+Release/
+
+# Build artifacts
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Visual Studio
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.user
+
+# Temporary files
+*.log
+*.tmp
+Thumbs.db
+Desktop.ini

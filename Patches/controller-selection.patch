@@ -1,0 +1,137 @@
+diff --git a/Source/controls/devices/game_controller.cpp b/Source/controls/devices/game_controller.cpp
+index 55512d4eb..5893eb61c 100644
+--- a/Source/controls/devices/game_controller.cpp
++++ b/Source/controls/devices/game_controller.cpp
+@@ -12,6 +12,7 @@
+ namespace devilution {
+ 
+ std::vector<GameController> GameController::controllers_;
++int GameController::preferred_controller_index_ = -1;
+ 
+ void GameController::UnlockTriggerState()
+ {
+@@ -161,8 +162,24 @@ bool GameController::ProcessAxisMotion(const SDL_Event &event)
+ 	return true;
+ }
+ 
++void GameController::SetPreferredController(int index)
++{
++	preferred_controller_index_ = index;
++}
++
++bool GameController::IsPreferredController(int index)
++{
++	return preferred_controller_index_ < 0 || index == preferred_controller_index_;
++}
++
+ void GameController::Add(int joystickIndex)
+ {
++	if (preferred_controller_index_ >= 0 && joystickIndex != preferred_controller_index_) {
++		Log("Ignoring game controller at index {} (selected controller is {})",
++		    joystickIndex, preferred_controller_index_);
++		return;
++	}
++
+ 	Log("Opening game controller for joystick at index {}", joystickIndex);
+ 	GameController result;
+ 	result.sdl_game_controller_ = SDL_GameControllerOpen(joystickIndex);
+diff --git a/Source/controls/devices/game_controller.h b/Source/controls/devices/game_controller.h
+index f9ead4fe4..2b3d10b4e 100644
+--- a/Source/controls/devices/game_controller.h
++++ b/Source/controls/devices/game_controller.h
+@@ -13,6 +13,8 @@ class GameController {
+ 	static std::vector<GameController> controllers_;
+ 
+ public:
++	static bool IsPreferredController(int index);
++	static void SetPreferredController(int index);
+ 	static void Add(int joystickIndex);
+ 	static void Remove(SDL_JoystickID instanceId);
+ 	static GameController *Get(SDL_JoystickID instanceId);
+@@ -31,6 +33,8 @@ public:
+ 	static GamepadLayout getLayout(const SDL_Event &event);
+ 
+ private:
++	static int preferred_controller_index_;
++
+ 	SDL_GameController *sdl_game_controller_ = NULL;
+ 	SDL_JoystickID instance_id_ = -1;
+ 
+diff --git a/Source/controls/devices/joystick.cpp b/Source/controls/devices/joystick.cpp
+index 62f6931d4..40fe744ec 100644
+--- a/Source/controls/devices/joystick.cpp
++++ b/Source/controls/devices/joystick.cpp
+@@ -3,6 +3,7 @@
+ #include <cstddef>
+ 
+ #include "controls/controller_motion.h"
++#include "controls/devices/game_controller.h"
+ #include "utils/log.hpp"
+ #include "utils/stubs.h"
+ 
+@@ -311,6 +312,13 @@ bool Joystick::ProcessAxisMotion(const SDL_Event &event)
+ 
+ void Joystick::Add(int deviceIndex)
+ {
++#ifndef USE_SDL1
++	if (!GameController::IsPreferredController(deviceIndex)) {
++		Log("Ignoring joystick at index {} (not the selected controller)", deviceIndex);
++		return;
++	}
++#endif
++
+ 	if (SDL_NumJoysticks() <= deviceIndex)
+ 		return;
+ 	Joystick result;
+diff --git a/Source/diablo.cpp b/Source/diablo.cpp
+index c67a5f58c..44986f981 100644
+--- a/Source/diablo.cpp
++++ b/Source/diablo.cpp
+@@ -20,6 +20,7 @@
+ #endif
+ #include "DiabloUI/diabloui.h"
+ #include "controls/devices/kbcontroller.h"
++#include "controls/devices/game_controller.h"
+ #include "controls/plrctrls.h"
+ #include "controls/remap_keyboard.h"
+ #include "diablo.h"
+@@ -86,6 +87,7 @@
+ #include "utils/str_cat.hpp"
+ #include "utils/utf8.hpp"
+ 
++
+ #ifndef USE_SDL1
+ #include "controls/touch/gamepad.h"
+ #include "controls/touch/renderers.h"
+@@ -941,6 +943,7 @@ void PrintHelpOption(string_view flags, string_view description)
+ 
+ [[noreturn]] void PrintHelpAndExit()
+ {
++	PrintHelpOption("--controller <#>", "Select controller (0-3)");  // Added select controller commandline option
+ 	printInConsole((/* TRANSLATORS: Commandline Option */ "Options:"));
+ 	printNewlineInConsole();
+ 	PrintHelpOption("-h, --help", _(/* TRANSLATORS: Commandline Option */ "Print this message and exit"));
+@@ -1013,7 +1016,22 @@ void DiabloParseFlags(int argc, char **argv)
+ 				diablo_quit(64);
+ 			}
+ 			paths::SetBasePath(argv[++i]);
+-		} else if (arg == "--save-dir") {
++                } else if (arg == "--controller") {
++                        if (i + 1 == argc) {
++                                PrintFlagsRequiresArgument("--controller");
++                                diablo_quit(64);
++                        }
++
++                        const int controllerIndex = SDL_atoi(argv[++i]);
++
++                        if (controllerIndex < 0 || controllerIndex > 3) {
++                                printInConsole("Controller index must be between 0 and 3.");
++                                printNewlineInConsole();
++                                diablo_quit(64);
++                        }
++
++                        GameController::SetPreferredController(controllerIndex);
++                } else if (arg == "--save-dir") {
+ 			if (i + 1 == argc) {
+ 				PrintFlagsRequiresArgument("--save-dir");
+ 				diablo_quit(64);
